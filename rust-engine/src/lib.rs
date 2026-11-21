@@ -12,6 +12,9 @@ impl Point3 {
     fn sub(self, other: Self) -> Self { Self { x:self.x-other.x, y:self.y-other.y, z:self.z-other.z } }
     fn cross(self, other: Self) -> Self { Self { x:self.y*other.z-self.z*other.y, y:self.z*other.x-self.x*other.z, z:self.x*other.y-self.y*other.x } }
     fn magnitude2(self) -> f64 { self.x*self.x+self.y*self.y+self.z*self.z }
+    fn dot(self, other: Self) -> f64 { self.x*other.x+self.y*other.y+self.z*other.z }
+    fn add(self, other: Self) -> Self { Self{x:self.x+other.x,y:self.y+other.y,z:self.z+other.z} }
+    fn scale(self, s:f64) -> Self { Self{x:self.x*s,y:self.y*s,z:self.z*s} }
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mesh { pub vertices: Vec<Point3>, pub triangles: Vec<[usize; 3]> }
@@ -38,8 +41,40 @@ pub struct Selection {
     pub edges: HashSet<(usize,usize)>,
     pub faces: HashSet<usize>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Element { Vertex(usize), Edge(usize,usize), Face(usize) }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectionAction { Replace, Add, Remove, Toggle }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickMode { Vertex, Edge, Face }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ray { pub origin: Point3, pub direction: Point3 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PickHit { pub element: Element, pub position: Point3, pub ray_parameter: f64 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PickError { InvalidMesh(MeshError), InvalidRay, InvalidTolerance }
 impl Selection {
     pub fn select_edge(&mut self, a:usize, b:usize) { self.edges.insert(edge(a,b)); }
+    /// Modify selection atomically: invalid hits leave the prior selection intact.
+    pub fn apply(&mut self, mesh:&Mesh, element:Element, action:SelectionAction) -> Result<(),SelectionError> {
+        mesh.validate().map_err(SelectionError::InvalidMesh)?;
+        match element {
+            Element::Vertex(v) if v>=mesh.vertices.len()=>return Err(SelectionError::InvalidVertex(v)),
+            Element::Face(f) if f>=mesh.triangles.len()=>return Err(SelectionError::InvalidFace(f)),
+            Element::Edge(a,b) if !mesh.triangles.iter().any(|f| [(f[0],f[1]),(f[1],f[2]),(f[2],f[0])].iter().any(|&(u,v)|edge(u,v)==edge(a,b)))=>return Err(SelectionError::InvalidEdge(a,b)),
+            _=>{}
+        }
+        if action==SelectionAction::Replace {*self=Self::default();}
+        fn update<T:std::hash::Hash+Eq>(set:&mut HashSet<T>, value:T, action:SelectionAction) {
+            match action {
+                SelectionAction::Replace | SelectionAction::Add=>{set.insert(value);},
+                SelectionAction::Remove=>{set.remove(&value);},
+                SelectionAction::Toggle=>{if !set.remove(&value){set.insert(value);}},
+            }
+        }
+        match element {Element::Vertex(v)=>update(&mut self.vertices,v,action),Element::Edge(a,b)=>update(&mut self.edges,edge(a,b),action),Element::Face(f)=>update(&mut self.faces,f,action)}
+        Ok(())
+    }
 }
 /// A connected open boundary. A closed loop has every vertex of degree two.
 /// Branched and open chains are reported but never represented as valid loops.
@@ -91,6 +126,53 @@ impl Mesh {
         for (i,p) in self.vertices.iter().enumerate() { if !p.finite() { return Err(MeshError::InvalidVertex(i)); } }
         for (i,f) in self.triangles.iter().enumerate() { if f.iter().any(|&v|v>=self.vertices.len()) { return Err(MeshError::InvalidIndex(i)); } }
         Ok(())
+    }
+    /// Hit-test the nearest frontmost triangle along a ray, without backface culling.
+    /// For vertex/edge mode, choose the closest element of that triangle if it is
+    /// within `tolerance` mesh units of the hit point. This is a geometric baseline,
+    /// not a pixel-space hit test; the viewport must convert its screen tolerance.
+    /// Linear scan: not yet suitable for dense scans without a spatial index.
+    pub fn pick(&self, ray:Ray, mode:PickMode, tolerance:f64) -> Result<Option<PickHit>,PickError> {
+        self.validate().map_err(PickError::InvalidMesh)?;
+        if !ray.origin.finite() || !ray.direction.finite() || ray.direction.magnitude2()==0.0 || !ray.direction.magnitude2().is_finite() {return Err(PickError::InvalidRay);}
+        if !tolerance.is_finite() || tolerance<0.0 {return Err(PickError::InvalidTolerance);}
+        let mut nearest:Option<(usize,f64,Point3)>=None;
+        for (face,&[ia,ib,ic]) in self.triangles.iter().enumerate() {
+            let (a,b,c)=(self.vertices[ia],self.vertices[ib],self.vertices[ic]);
+            let (e1,e2)=(b.sub(a),c.sub(a));let p=ray.direction.cross(e2);let det=e1.dot(p);
+            // Relative parallel test avoids treating a tiny but valid triangle as degenerate.
+            let scale=e1.magnitude2().sqrt()*e2.magnitude2().sqrt()*ray.direction.magnitude2().sqrt();
+            if !scale.is_finite() || scale==0.0 || det.abs()<=scale*1e-14 {continue;}
+            let inv=1.0/det;let s=ray.origin.sub(a);let u=s.dot(p)*inv;
+            if !(0.0..=1.0).contains(&u){continue;}
+            let q=s.cross(e1);let v=ray.direction.dot(q)*inv;
+            if v<0.0 || u+v>1.0 {continue;}
+            let t=e2.dot(q)*inv;
+            if !t.is_finite() || t<0.0 || nearest.as_ref().is_some_and(|(_,old,_)|t>=*old){continue;}
+            let point=ray.origin.add(ray.direction.scale(t));if !point.finite(){continue;}
+            nearest=Some((face,t,point));
+        }
+        let Some((face,t,position))=nearest else{return Ok(None)};
+        let f=self.triangles[face];
+        let element=match mode {
+            PickMode::Face=>Element::Face(face),
+            PickMode::Vertex=>{
+                let (id,distance)=f.into_iter().map(|i|(i,self.vertices[i].sub(position).magnitude2())).min_by(|a,b|a.1.total_cmp(&b.1)).unwrap();
+                if distance.sqrt()>tolerance{return Ok(None);} Element::Vertex(id)
+            },
+            PickMode::Edge=>{
+                let (mut best,mut distance)=((0,0),f64::INFINITY);
+                for (a,b) in [(f[0],f[1]),(f[1],f[2]),(f[2],f[0])] {
+                    let start=self.vertices[a];let line=self.vertices[b].sub(start);let length=line.magnitude2();
+                    if length==0.0 || !length.is_finite(){continue;}
+                    let along=(position.sub(start).dot(line)/length).clamp(0.0,1.0);
+                    let d=position.sub(start.add(line.scale(along))).magnitude2();
+                    if d<distance {distance=d;best=edge(a,b);}
+                }
+                if distance.sqrt()>tolerance{return Ok(None);}Element::Edge(best.0,best.1)
+            }
+        };
+        Ok(Some(PickHit {element,position,ray_parameter:t}))
     }
     fn degenerate(&self, f: [usize;3]) -> bool {
         if f[0]==f[1] || f[1]==f[2] || f[2]==f[0] { return true; }
@@ -285,5 +367,34 @@ mod tests {
   let mut original=mesh();original.vertices.extend([Point3{x:2.,y:0.,z:0.},Point3{x:2.,y:1.,z:0.}]);
   original.triangles.push([2,4,5]);let mut selection=Selection::default();selection.vertices.insert(2);
   let boundaries=original.selected_boundaries(&selection).unwrap();assert_eq!(boundaries.len(),1);assert!(!boundaries[0].closed);
+ }
+ fn ray(x:f64,y:f64)->Ray {Ray{origin:Point3{x,y,z:2.},direction:Point3{x:0.,y:0.,z:-1.}}}
+ #[test] fn pointer_picks_face_edge_and_vertex(){
+  let m=mesh();
+  assert_eq!(m.pick(ray(0.75,0.25),PickMode::Face,0.).unwrap().unwrap().element,Element::Face(0));
+  assert_eq!(m.pick(ray(0.5,0.01),PickMode::Edge,0.02).unwrap().unwrap().element,Element::Edge(0,1));
+  assert_eq!(m.pick(ray(0.01,0.01),PickMode::Vertex,0.02).unwrap().unwrap().element,Element::Vertex(0));
+  assert!(m.pick(ray(0.5,0.2),PickMode::Vertex,0.02).unwrap().is_none());
+  assert!(m.pick(ray(2.,2.),PickMode::Face,0.).unwrap().is_none());
+ }
+ #[test] fn pointer_picks_front_surface(){
+  let mut m=mesh();m.vertices.extend(m.vertices.clone().iter().map(|p|Point3{x:p.x,y:p.y,z:1.}));
+  m.triangles.extend([[4,5,6],[4,6,7]]);
+  let hit=m.pick(ray(0.75,0.25),PickMode::Face,0.).unwrap().unwrap();
+  assert_eq!(hit.element,Element::Face(2));assert_eq!(hit.position.z,1.);
+ }
+ #[test] fn selection_actions_and_invalid_hit_are_atomic(){
+  let m=mesh();let mut s=Selection::default();
+  s.apply(&m,Element::Vertex(0),SelectionAction::Replace).unwrap();
+  s.apply(&m,Element::Vertex(1),SelectionAction::Add).unwrap();
+  s.apply(&m,Element::Vertex(0),SelectionAction::Toggle).unwrap();
+  assert_eq!(s.vertices,HashSet::from([1]));
+  let before=s.clone();assert!(s.apply(&m,Element::Face(99),SelectionAction::Replace).is_err());assert_eq!(s,before);
+  s.apply(&m,Element::Edge(1,0),SelectionAction::Replace).unwrap();assert!(s.vertices.is_empty());assert!(s.edges.contains(&(0,1)));
+  s.apply(&m,Element::Edge(0,1),SelectionAction::Remove).unwrap();assert!(s.edges.is_empty());
+ }
+ #[test] fn invalid_rays_and_tolerances_are_rejected(){
+  let m=mesh();assert_eq!(m.pick(Ray{origin:ray(0.,0.).origin,direction:Point3{x:0.,y:0.,z:0.}},PickMode::Face,0.),Err(PickError::InvalidRay));
+  assert_eq!(m.pick(ray(0.,0.),PickMode::Face,f64::NAN),Err(PickError::InvalidTolerance));
  }
 }

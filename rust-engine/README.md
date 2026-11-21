@@ -25,3 +25,7 @@ Coordinates have no intrinsic units. No default movement tolerance is assumed. S
 ## Element selection
 
 The library represents vertex, edge and triangle-face selections. `Mesh::selected_boundaries` discovers connected open-boundary components touching the selected elements without modifying the mesh. A selected interior edge does not imply selecting the nearest boundary. Returned components include original vertex, edge and adjacent-face IDs and distinguish closed loops from branched boundaries. Selecting a boundary is for inspection; it never patches it automatically. Selection is currently a library API, not a visual interface. Mesh IDs are revision-specific and must be discarded or remapped after topology changes.
+
+## Pointer selection groundwork
+
+`Mesh::pick` finds the nearest triangle intersected by a supplied 3D ray and can identify its face, nearest edge or nearest vertex. Vertex/edge hit tolerance is specified in mesh units at the surface intersection. `Selection::apply` supports replace, add, remove and toggle operations, validating the target before changing the selection. A viewport must generate the ray and convert pixel hit radius to world units; neither the viewport nor pixel-space hit testing is implemented. Picking currently scans every triangle and is not optimized or benchmarked for large scans. Selecting an edge or vertex requires the ray to intersect a triangle, so silhouette and screen-space picking need further work. Geometry is not modified.
