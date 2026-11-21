@@ -29,6 +29,36 @@ pub struct Diagnostics {
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CleanupReport { pub removed_degenerate: usize, pub removed_duplicate: usize }
+
+/// A reviewable cleanup proposal. The source snapshot prevents applying a
+/// proposal to a different mesh or a mesh that changed after inspection.
+/// Face IDs refer to the source mesh, not the reindexed result.
+#[derive(Clone, Debug)]
+pub struct CleanupProposal {
+    source: Mesh,
+    remove_face: Vec<bool>,
+    pub report: CleanupReport,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProposalError { InvalidMesh(MeshError), SourceChanged }
+impl From<MeshError> for ProposalError {
+    fn from(value: MeshError) -> Self { Self::InvalidMesh(value) }
+}
+impl CleanupProposal {
+    /// Face IDs marked for removal. Unlisted faces remain in their original order.
+    pub fn removed_face_ids(&self) -> impl Iterator<Item=usize> + '_ {
+        self.remove_face.iter().enumerate().filter_map(|(i,&remove)|remove.then_some(i))
+    }
+    /// Apply only to the exact reviewed snapshot and return a new mesh. The
+    /// caller's original mesh remains available for comparison or undo.
+    pub fn apply(&self, source: &Mesh) -> Result<Mesh, ProposalError> {
+        source.validate()?;
+        if source != &self.source { return Err(ProposalError::SourceChanged); }
+        let triangles=source.triangles.iter().enumerate()
+            .filter_map(|(i,&f)|(!self.remove_face[i]).then_some(f)).collect();
+        Ok(Mesh { vertices: source.vertices.clone(), triangles })
+    }
+}
 #[derive(Clone, Copy, Debug)]
 struct EdgeUse { from: usize, to: usize }
 fn edge(a: usize, b: usize) -> (usize, usize) { if a < b {(a,b)} else {(b,a)} }
@@ -69,23 +99,31 @@ impl Mesh {
         }
         Ok(result)
     }
+    /// Analyze a cleanup without mutating the mesh. Only exact duplicates and
+    /// exactly zero-area triangles are candidates; no holes are filled.
+    pub fn propose_cleanup(&self, mask: Option<&[bool]>) -> Result<CleanupProposal,MeshError> {
+        self.validate()?;
+        if mask.is_some_and(|m|m.len()!=self.triangles.len()) {return Err(MeshError::MaskLength);}
+        let mut seen=HashSet::new();
+        if let Some(m)=mask { for (i,&f) in self.triangles.iter().enumerate() {if !m[i] {seen.insert(canonical_face(f));}} }
+        let mut remove_face=vec![false;self.triangles.len()];
+        let mut report=CleanupReport::default();
+        for (i,&f) in self.triangles.iter().enumerate() {
+            if mask.is_some_and(|m|!m[i]) {continue;}
+            if self.degenerate(f) {remove_face[i]=true;report.removed_degenerate+=1;continue;}
+            if !seen.insert(canonical_face(f)) {remove_face[i]=true;report.removed_duplicate+=1;}
+        }
+        Ok(CleanupProposal {source:self.clone(),remove_face,report})
+    }
     /// Remove exact zero-area and duplicate triangles within the selected face mask.
     /// Face IDs in the mask refer to the original mesh. Vertices are not moved or removed.
     /// Unselected duplicates are preserved. If a selected face duplicates an unselected
     /// face, the unselected face is retained regardless of ordering.
     pub fn cleanup(&mut self, mask: Option<&[bool]>) -> Result<CleanupReport,MeshError> {
-        self.validate()?;
-        if mask.is_some_and(|m|m.len()!=self.triangles.len()) {return Err(MeshError::MaskLength);}
-        let mut seen=HashSet::new();
-        if let Some(m)=mask { for (i,&f) in self.triangles.iter().enumerate() {if !m[i] {seen.insert(canonical_face(f));}} }
-        let mut kept=Vec::with_capacity(self.triangles.len());let mut result=CleanupReport::default();
-        for (i,&f) in self.triangles.iter().enumerate() {
-            if mask.is_some_and(|m|!m[i]) {kept.push(f);continue;}
-            if self.degenerate(f) {result.removed_degenerate+=1;continue;}
-            if !seen.insert(canonical_face(f)) {result.removed_duplicate+=1;continue;}
-            kept.push(f);
-        }
-        self.triangles=kept;Ok(result)
+        let proposal=self.propose_cleanup(mask)?;
+        self.triangles=self.triangles.iter().enumerate()
+            .filter_map(|(i,&f)|(!proposal.remove_face[i]).then_some(f)).collect();
+        Ok(proposal.report)
     }
 }
 
@@ -139,4 +177,22 @@ mod tests {
  #[test] fn truncated_stl_is_rejected(){let m=mesh();let mut b=Vec::new();write_binary_stl(&m,&mut b).unwrap();b.pop();assert!(read_binary_stl(b.as_slice()).is_err());}
  #[test] fn inconsistent_edge_is_reported(){let mut m=mesh();m.triangles[1]=[0,3,2];assert_eq!(m.diagnose().unwrap().inconsistent_edges,1);}
  #[test] fn invalid_indices_reported(){let mut m=mesh();m.triangles.push([0,1,99]);assert_eq!(m.diagnose(),Err(MeshError::InvalidIndex(2)));}
+ #[test] fn proposal_leaves_source_untouched_and_lists_face_ids(){
+  let mut original=mesh();original.triangles.push([2,1,0]);
+  let before=original.clone();let proposal=original.propose_cleanup(None).unwrap();
+  assert_eq!(original,before);assert_eq!(proposal.removed_face_ids().collect::<Vec<_>>(),vec![2]);
+  let result=proposal.apply(&original).unwrap();assert_eq!(result.vertices,original.vertices);
+  assert_eq!(result.triangles.len(),2);assert_eq!(original.triangles.len(),3);
+ }
+ #[test] fn stale_proposals_rejected(){
+  let original=mesh();let proposal=original.propose_cleanup(None).unwrap();let mut changed=original.clone();
+  changed.vertices[0].x=0.000001;
+  assert_eq!(proposal.apply(&changed),Err(ProposalError::SourceChanged));
+ }
+ #[test] fn selection_never_removes_unselected_duplicate(){
+  let mut original=mesh();original.triangles.push([2,1,0]);
+  let proposal=original.propose_cleanup(Some(&[true,false,false])).unwrap();
+  assert_eq!(proposal.removed_face_ids().collect::<Vec<_>>(),vec![0]);
+  let result=proposal.apply(&original).unwrap();assert_eq!(result.triangles,vec![[0,2,3],[2,1,0]]);
+ }
 }
