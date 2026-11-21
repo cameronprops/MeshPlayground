@@ -58,29 +58,33 @@ class Mesh:
     for y in adj[x]:component.add(tuple(sorted((x,y))));stack.append(y)
    visited.update(component)
    if len(verts)<3 or any(len(adj[x])!=2 for x in verts):skipped+=1;continue
-   loop=[a];prev=None;cur=a
+   loop=[a];loop_seen={a};prev=None;cur=a
    while True:
     nxt=next(x for x in adj[cur] if x!=prev)
     if nxt==a:break
-    if nxt in loop:loop=[];break
-    loop.append(nxt);prev,cur=cur,nxt
+    if nxt in loop_seen:loop=[];break
+    loop.append(nxt);loop_seen.add(nxt);prev,cur=cur,nxt
    if loop and len(loop)==len(verts):loops.append(loop)
    else:skipped+=1
   return loops,skipped
  def patch(self,selected=None,max_edges=100):
-  em=self.edge_map();loops,skipped=self.boundary_loops();patched=0;newfaces=0
+  em=self.edge_map();loops,skipped=self.boundary_loops();patched=0;newfaces=0;reasons=Counter()
+  if skipped:reasons['branched boundary']+=skipped
   for loop in loops:
-   if len(loop)>max_edges:skipped+=1;continue
+   if len(loop)>max_edges:skipped+=1;reasons['edge limit']+=1;continue
    refs=[em[tuple(sorted((loop[i],loop[(i+1)%len(loop)])))][0] for i in range(len(loop))]
    # All faces adjacent to the loop must be painted in selected mode.
    if selected is not None and not all(ref[0] in selected for ref in refs):continue
+   directions=[(u,v)==(loop[i],loop[(i+1)%len(loop)]) for i,(_,u,v) in enumerate(refs)]
+   if not (all(directions) or not any(directions)):
+    skipped+=1;reasons['inconsistent boundary winding']+=1;continue
    try: tris=triangulate(loop,self.v)
-   except ValueError:skipped+=1;continue
+   except ValueError as e:skipped+=1;reasons[str(e)]+=1;continue
    # Make the patch share its first edge in opposite direction to the existing face.
    _,u,v=refs[0]
    if (u,v)==(loop[0],loop[1]):tris=[(a,c,b) for a,b,c in tris]
    self.f.extend(tris);patched+=1;newfaces+=len(tris)
-  return {'patched_loops':patched,'added_triangles':newfaces,'skipped':skipped}
+  return {'patched_loops':patched,'added_triangles':newfaces,'skipped':skipped,'reasons':dict(reasons)}
  def shell(self,thickness):
   if not math.isfinite(thickness) or thickness<=0:raise ValueError('Thickness must be greater than zero.')
   self.validate();em=self.edge_map()
@@ -104,8 +108,27 @@ def triangulate(loop,vertices):
  for i,a in enumerate(loop):
   p=vertices[a];q=vertices[loop[(i+1)%len(loop)]]
   n[0]+=(p[1]-q[1])*(p[2]+q[2]);n[1]+=(p[2]-q[2])*(p[0]+q[0]);n[2]+=(p[0]-q[0])*(p[1]+q[1])
+ magnitude=norm(n)
+ if magnitude<1e-15:raise ValueError('degenerate boundary')
+ normal=mul(n,1/magnitude);origin=vertices[loop[0]]
+ extent=max(norm(sub(vertices[i],origin)) for i in loop)
+ if max(abs(dot(sub(vertices[i],origin),normal)) for i in loop)>max(1e-9,extent*0.01):
+  raise ValueError('nonplanar boundary')
  axis=max(range(3),key=lambda x:abs(n[x]));axes=[j for j in range(3) if j!=axis];pts={i:(vertices[i][axes[0]],vertices[i][axes[1]]) for i in loop}
  def orient(a,b,c):p,q,r=pts[a],pts[b],pts[c];return (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0])
+ # Non-adjacent projected edges must not cross or touch; reject ambiguous loops.
+ eps=max(extent*extent*1e-12,1e-15)
+ def on_segment(a,b,c):
+  p,q,r=pts[a],pts[b],pts[c]
+  return abs(orient(a,b,c))<=eps and min(p[0],q[0])-eps<=r[0]<=max(p[0],q[0])+eps and min(p[1],q[1])-eps<=r[1]<=max(p[1],q[1])+eps
+ for i,a in enumerate(loop):
+  b=loop[(i+1)%len(loop)]
+  for j in range(i+1,len(loop)):
+   c,d=loop[j],loop[(j+1)%len(loop)]
+   if len({a,b,c,d})<4:continue
+   o1,o2,o3,o4=orient(a,b,c),orient(a,b,d),orient(c,d,a),orient(c,d,b)
+   if ((o1>eps and o2< -eps or o1< -eps and o2>eps) and (o3>eps and o4< -eps or o3< -eps and o4>eps)) or on_segment(a,b,c) or on_segment(a,b,d) or on_segment(c,d,a) or on_segment(c,d,b):
+    raise ValueError('self-intersecting boundary')
  area=sum(pts[loop[i]][0]*pts[loop[(i+1)%len(loop)]][1]-pts[loop[(i+1)%len(loop)]][0]*pts[loop[i]][1] for i in range(len(loop)))
  if abs(area)<1e-15:raise ValueError('Degenerate boundary')
  sign=1 if area>0 else -1;remain=loop[:];out=[]
@@ -187,6 +210,8 @@ class App:
    selection=None if self.scope.get()=='all' else set(self.selected)
    if selection is not None and not selection:raise ValueError('Paint some faces first.')
    temp=self.mesh.clone();patch=temp.patch(selection,limit);clean=temp.clean(selection);self.backup=self.mesh;self.mesh=temp;self.selected.clear();self.status.set(f"Patched {patch['patched_loops']} loops, added {patch['added_triangles']} triangles; removed {clean['removed_faces']} degenerate or duplicate faces. Skipped {patch['skipped']} unsuitable loops.");self.draw()
+   if patch['reasons']:
+    messagebox.showinfo('Repair report','Some boundaries were left untouched:\n\n'+'\n'.join(f'{reason}: {count}' for reason,count in patch['reasons'].items()))
   except Exception as e:messagebox.showerror('Repair failed',str(e))
  def shell(self):
   if not self.mesh:return

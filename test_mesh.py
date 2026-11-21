@@ -12,3 +12,17 @@ plate=Mesh(v[:4],[(0,1,2),(0,2,3)]);shell=plate.shell(.1);assert shell.v[:4]==v[
 with tempfile.TemporaryDirectory() as d:
  path=pathlib.Path(d)/'test.stl';write_stl(path,m);n=read_mesh(path);assert n.diagnostics()['boundary_edges']==0 and len(n.f)==len(m.f)
 print('PASS: hole patch, original coordinates, painted scope, shell boundary, STL round trip')
+from mesh_workshop import triangulate
+
+def rejected(vertices):
+ try:triangulate(list(range(len(vertices))),vertices)
+ except ValueError as e:return str(e)
+ raise AssertionError('Unsafe loop was accepted')
+
+assert rejected([(0,0,0),(2,0,0),(2,2,1),(0,2,0)])=='nonplanar boundary'
+assert rejected([(0,0,0),(3,3,0),(0,2,0),(2,0,0)]) in ('self-intersecting boundary','degenerate boundary')
+# A flipped adjacent face must not receive a patch with inconsistent normals.
+bad=Mesh(v[:],f[:]);bad.f[3]=tuple(reversed(bad.f[3]));result=bad.patch()
+assert result['patched_loops']==0 and result['reasons']['inconsistent boundary winding']==1
+assert bad.v==v and len(bad.f)==len(f)
+print('PASS: nonplanar and crossing loops rejected; inconsistent winding left untouched')
