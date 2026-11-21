@@ -50,7 +50,7 @@ pub struct Boundary {
     pub adjacent_faces: Vec<usize>,
     pub closed: bool,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SelectionError { InvalidMesh(MeshError), InvalidVertex(usize), InvalidEdge(usize,usize), InvalidFace(usize) }
 
 /// A reviewable cleanup proposal. The source snapshot prevents applying a
