@@ -21,3 +21,7 @@ MeshPlayground is intended to help a person inspect, select, preview, and accept
 The current proposal retains a full source snapshot for reliable stale-proposal detection. This is intentionally simple but duplicates memory. A future scan-scale implementation needs stable mesh revision IDs or another measured approach; performance has not been established. A vertex-preserving patch can still approximate the missing surface incorrectly or intersect other geometry. Patch preview, surface deviation measurement, intersection tests, and user acceptance are not implemented yet.
 
 Coordinates have no intrinsic units. No default movement tolerance is assumed. STL export has float32 precision and can change coordinate values through rounding.
+
+## Element selection
+
+The library represents vertex, edge and triangle-face selections. `Mesh::selected_boundaries` discovers connected open-boundary components touching the selected elements without modifying the mesh. A selected interior edge does not imply selecting the nearest boundary. Returned components include original vertex, edge and adjacent-face IDs and distinguish closed loops from branched boundaries. Selecting a boundary is for inspection; it never patches it automatically. Selection is currently a library API, not a visual interface. Mesh IDs are revision-specific and must be discarded or remapped after topology changes.

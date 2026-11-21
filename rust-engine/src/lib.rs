@@ -30,6 +30,29 @@ pub struct Diagnostics {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CleanupReport { pub removed_degenerate: usize, pub removed_duplicate: usize }
 
+/// Explicit indexed element selection. IDs refer to the current mesh revision.
+/// Edge endpoints are canonicalized by `select_edge`; selections do not mutate geometry.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Selection {
+    pub vertices: HashSet<usize>,
+    pub edges: HashSet<(usize,usize)>,
+    pub faces: HashSet<usize>,
+}
+impl Selection {
+    pub fn select_edge(&mut self, a:usize, b:usize) { self.edges.insert(edge(a,b)); }
+}
+/// A connected open boundary. A closed loop has every vertex of degree two.
+/// Branched and open chains are reported but never represented as valid loops.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Boundary {
+    pub edges: Vec<(usize,usize)>,
+    pub vertices: Vec<usize>,
+    pub adjacent_faces: Vec<usize>,
+    pub closed: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectionError { InvalidMesh(MeshError), InvalidVertex(usize), InvalidEdge(usize,usize), InvalidFace(usize) }
+
 /// A reviewable cleanup proposal. The source snapshot prevents applying a
 /// proposal to a different mesh or a mesh that changed after inspection.
 /// Face IDs refer to the source mesh, not the reindexed result.
@@ -82,6 +105,50 @@ impl Mesh {
             }
         }
         edges
+    }
+    /// Inspect open-boundary components touching selected vertices, edges, or faces.
+    /// Selecting any element discovers the whole connected boundary for review;
+    /// it does not authorize or apply a repair. A face matches only its own edges.
+    pub fn selected_boundaries(&self, selection:&Selection) -> Result<Vec<Boundary>,SelectionError> {
+        self.validate().map_err(SelectionError::InvalidMesh)?;
+        let edges=self.edge_uses();
+        for &v in &selection.vertices {if v>=self.vertices.len(){return Err(SelectionError::InvalidVertex(v));}}
+        for &(a,b) in &selection.edges {if !edges.contains_key(&edge(a,b)){return Err(SelectionError::InvalidEdge(a,b));}}
+        for &f in &selection.faces {if f>=self.triangles.len(){return Err(SelectionError::InvalidFace(f));}}
+        let mut adjacency:BTreeMap<usize,Vec<usize>>=BTreeMap::new();
+        let mut boundary_face:BTreeMap<(usize,usize),usize>=BTreeMap::new();
+        // Keep stable face IDs alongside boundary edges without depending on face winding.
+        for (face,&[a,b,c]) in self.triangles.iter().enumerate() {
+            for (u,v) in [(a,b),(b,c),(c,a)] {
+                let e=edge(u,v);
+                if edges.get(&e).is_some_and(|uses|uses.len()==1) {
+                    boundary_face.insert(e,face);
+                }
+            }
+        }
+        for &(a,b) in boundary_face.keys() {
+            adjacency.entry(a).or_default().push(b);adjacency.entry(b).or_default().push(a);
+        }
+        let mut visited=HashSet::new();let mut result=Vec::new();
+        for &start in adjacency.keys() {
+            if !visited.insert(start) {continue;}
+            let mut stack=vec![start];let mut vertices=Vec::new();let mut component_edges=HashSet::new();
+            while let Some(v)=stack.pop() {
+                vertices.push(v);
+                for &next in &adjacency[&v] {
+                    component_edges.insert(edge(v,next));
+                    if visited.insert(next) {stack.push(next);}
+                }
+            }
+            vertices.sort_unstable();let mut component_edges:Vec<_>=component_edges.into_iter().collect();component_edges.sort_unstable();
+            let mut faces:Vec<_>=component_edges.iter().map(|e|boundary_face[e]).collect();faces.sort_unstable();faces.dedup();
+            let matches=vertices.iter().any(|v|selection.vertices.contains(v)) || component_edges.iter().any(|&(a,b)|selection.edges.contains(&(a,b)) || selection.edges.contains(&(b,a))) || faces.iter().any(|f|selection.faces.contains(f));
+            if matches {
+                let closed=vertices.len()>=3 && vertices.iter().all(|v|adjacency[v].len()==2);
+                result.push(Boundary {vertices,edges:component_edges,adjacent_faces:faces,closed});
+            }
+        }
+        Ok(result)
     }
     /// Read-only topology report. No epsilon or model-size assumptions.
     pub fn diagnose(&self) -> Result<Diagnostics,MeshError> {
@@ -194,5 +261,29 @@ mod tests {
   let proposal=original.propose_cleanup(Some(&[true,false,false])).unwrap();
   assert_eq!(proposal.removed_face_ids().collect::<Vec<_>>(),vec![0]);
   let result=proposal.apply(&original).unwrap();assert_eq!(result.triangles,vec![[0,2,3],[2,1,0]]);
+ }
+ #[test] fn element_selection_finds_same_boundary_without_changing_mesh(){
+  let original=mesh();let before=original.clone();
+  let mut by_vertex=Selection::default();by_vertex.vertices.insert(0);
+  let mut by_edge=Selection::default();by_edge.select_edge(1,0);
+  let mut by_face=Selection::default();by_face.faces.insert(0);
+  let a=original.selected_boundaries(&by_vertex).unwrap();
+  assert_eq!(a,original.selected_boundaries(&by_edge).unwrap());
+  assert_eq!(a,original.selected_boundaries(&by_face).unwrap());
+  assert_eq!(a.len(),1);assert!(a[0].closed);assert_eq!(a[0].edges.len(),4);
+  assert_eq!(original,before);
+ }
+ #[test] fn interior_edge_selection_does_not_select_boundary(){
+  let original=mesh();let mut selection=Selection::default();selection.select_edge(0,2);
+  assert!(original.selected_boundaries(&selection).unwrap().is_empty());
+ }
+ #[test] fn invalid_selection_is_rejected(){
+  let original=mesh();let mut selection=Selection::default();selection.faces.insert(99);
+  assert_eq!(original.selected_boundaries(&selection),Err(SelectionError::InvalidFace(99)));
+ }
+ #[test] fn branched_boundary_is_not_called_a_loop(){
+  let mut original=mesh();original.vertices.extend([Point3{x:2.,y:0.,z:0.},Point3{x:2.,y:1.,z:0.}]);
+  original.triangles.push([2,4,5]);let mut selection=Selection::default();selection.vertices.insert(2);
+  let boundaries=original.selected_boundaries(&selection).unwrap();assert_eq!(boundaries.len(),1);assert!(!boundaries[0].closed);
  }
 }
