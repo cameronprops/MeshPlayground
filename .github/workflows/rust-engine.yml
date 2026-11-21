@@ -1,0 +1,17 @@
+name: Rust geometry engine
+on:
+  push:
+    paths: ["rust-engine/**", ".github/workflows/rust-engine.yml"]
+  pull_request:
+    paths: ["rust-engine/**", ".github/workflows/rust-engine.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test engine
+        run: cargo test --manifest-path rust-engine/Cargo.toml
+      - name: Check release build
+        run: cargo build --release --manifest-path rust-engine/Cargo.toml
