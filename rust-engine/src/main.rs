@@ -7,8 +7,18 @@ fn show(label:&str,mesh:&Mesh)->Result<(),Box<dyn std::error::Error>> {
 }
 fn run()->Result<(),Box<dyn std::error::Error>> {
  let args:Vec<String>=env::args().collect();
+ if args.get(1).is_some_and(|v|v=="intersections") {
+  if args.len()!=5 {return Err("Usage: meshplayground intersections INPUT.stl TOLERANCE MAX_CANDIDATES".into());}
+  let mesh=read_binary_stl(BufReader::new(File::open(&args[2])?))?;
+  let tolerance:f64=args[3].parse()?;let max_candidates:usize=args[4].parse()?;
+  let report=mesh.detect_intersections(tolerance,max_candidates).map_err(|e|format!("Intersection scan did not complete: {e:?}"))?;
+  println!("Potential intersections: {}\nCandidate pairs tested: {}\nShared-vertex pairs skipped: {}",report.pairs.len(),report.candidate_pairs_tested,report.shared_vertex_pairs_skipped);
+  for (a,b) in report.pairs {println!("Triangles {a} {b}");}
+  println!("Experimental floating-point check; adjacent-face intersections and other numeric cases can be missed. No repair performed.");
+  return Ok(());
+ }
  if args.len()<3 || !matches!(args[1].as_str(),"inspect"|"clean"|"repair-safe") || (args[1]!="inspect" && args.len()!=4) || (args[1]=="inspect" && args.len()!=3) {
-  return Err("Usage: meshplayground inspect INPUT.stl | meshplayground clean INPUT.stl OUTPUT.stl | meshplayground repair-safe INPUT.stl OUTPUT.stl".into());
+  return Err("Usage: meshplayground inspect INPUT.stl | meshplayground clean INPUT.stl OUTPUT.stl | meshplayground repair-safe INPUT.stl OUTPUT.stl | meshplayground intersections INPUT.stl TOLERANCE MAX_CANDIDATES".into());
  }
  let mut mesh=read_binary_stl(BufReader::new(File::open(&args[2])?))?;show("Before",&mesh)?;
  if args[1]!="inspect" {
