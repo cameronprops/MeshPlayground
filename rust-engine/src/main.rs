@@ -12,7 +12,7 @@ fn run()->Result<(),Box<dyn std::error::Error>> {
   let mesh=read_binary_stl(BufReader::new(File::open(&args[2])?))?;
   let tolerance:f64=args[3].parse()?;let max_candidates:usize=args[4].parse()?;
   let report=mesh.detect_intersections(tolerance,max_candidates).map_err(|e|format!("Intersection scan did not complete: {e:?}"))?;
-  println!("Potential intersections: {}\nCandidate pairs tested: {}\nShared-vertex pairs skipped: {}",report.pairs.len(),report.candidate_pairs_tested,report.shared_vertex_pairs_skipped);
+  println!("Potential intersections: {}\nNear-coincident vertex pairs (subset): {}\nCandidate pairs tested: {}\nShared-vertex pairs skipped: {}",report.pairs.len(),report.near_coincident_vertex_pairs.len(),report.candidate_pairs_tested,report.shared_vertex_pairs_skipped);
   for (a,b) in report.pairs {println!("Triangles {a} {b}");}
   println!("Experimental floating-point check; adjacent-face intersections and other numeric cases can be missed. No repair performed.");
   return Ok(());

@@ -4,7 +4,13 @@ use crate::{Mesh,MeshError,Point3};
 #[derive(Clone,Debug,PartialEq)]
 pub enum IntersectionError { InvalidMesh(MeshError), InvalidTolerance, DegenerateTriangle(usize), NumericalFailure, CandidateLimitExceeded }
 #[derive(Clone,Debug,PartialEq,Eq)]
-pub struct IntersectionReport { pub pairs:Vec<(usize,usize)>,pub candidate_pairs_tested:usize,pub shared_vertex_pairs_skipped:usize }
+pub struct IntersectionReport {
+ pub pairs:Vec<(usize,usize)>,
+ /// Subset of reported pairs with distinct vertex IDs whose coordinates are
+ /// within the caller's tolerance. These may be contacts or real overlaps.
+ pub near_coincident_vertex_pairs:Vec<(usize,usize)>,
+ pub candidate_pairs_tested:usize,pub shared_vertex_pairs_skipped:usize,
+}
 #[derive(Clone,Copy)]
 struct Bounds { min:[f64;3],max:[f64;3],face:usize }
 fn coord(p:Point3)->[f64;3] {[p.x,p.y,p.z]}
@@ -61,7 +67,7 @@ impl Mesh {
    if !n.is_finite(){return Err(IntersectionError::NumericalFailure);}if n==0.0{return Err(IntersectionError::DegenerateTriangle(i));}
   }
   let mut boxes:Vec<_>=(0..self.triangles.len()).map(|i|bounds(self,i)).collect();boxes.sort_by(|a,b|a.min[0].total_cmp(&b.min[0]));
-  let mut report=IntersectionReport{pairs:Vec::new(),candidate_pairs_tested:0,shared_vertex_pairs_skipped:0};
+  let mut report=IntersectionReport{pairs:Vec::new(),near_coincident_vertex_pairs:Vec::new(),candidate_pairs_tested:0,shared_vertex_pairs_skipped:0};
   for i in 0..boxes.len(){let x=boxes[i];for y in boxes.iter().skip(i+1){
    if y.min[0]>x.max[0]+tolerance{break;}
    if (1..3).any(|axis|y.min[axis]>x.max[axis]+tolerance||x.min[axis]>y.max[axis]+tolerance){continue;}
@@ -69,9 +75,15 @@ impl Mesh {
    if a.iter().any(|p|b.contains(p)){report.shared_vertex_pairs_skipped+=1;continue;}
    if report.candidate_pairs_tested>=max_candidates{return Err(IntersectionError::CandidateLimitExceeded);}
    report.candidate_pairs_tested+=1;
-   if intersect(a.map(|v|self.vertices[v]),b.map(|v|self.vertices[v]),tolerance){report.pairs.push((x.face.min(y.face),x.face.max(y.face)));}
+   if intersect(a.map(|v|self.vertices[v]),b.map(|v|self.vertices[v]),tolerance){
+    let pair=(x.face.min(y.face),x.face.max(y.face));report.pairs.push(pair);
+    // Classify, never suppress or weld: proximity alone does not prove contact.
+    if a.iter().any(|&v|b.iter().any(|&w|self.vertices[v].sub(self.vertices[w]).magnitude2().sqrt()<=tolerance)){
+     report.near_coincident_vertex_pairs.push(pair);
+    }
+   }
   }}
-  report.pairs.sort_unstable();Ok(report)
+  report.pairs.sort_unstable();report.near_coincident_vertex_pairs.sort_unstable();Ok(report)
  }
 }
 #[cfg(test)]
@@ -83,4 +95,8 @@ mod tests {
  #[test] fn distinct_and_adjacent_are_not_reported(){let m=Mesh{vertices:vec![p(0.,0.,0.),p(2.,0.,0.),p(0.,2.,0.),p(2.,2.,0.),p(0.,0.,5.),p(1.,0.,5.),p(0.,1.,5.)],triangles:vec![[0,1,2],[1,3,2],[4,5,6]]};let r=m.detect_intersections(1e-9,100).unwrap();assert!(r.pairs.is_empty());assert_eq!(r.shared_vertex_pairs_skipped,1);}
  #[test] fn candidate_limit_must_not_return_partial_results(){let m=Mesh{vertices:vec![p(0.,0.,0.),p(2.,0.,0.),p(0.,2.,0.),p(0.5,0.5,-1.),p(0.5,0.5,1.),p(1.,0.5,1.)],triangles:vec![[0,1,2],[3,4,5]]};assert_eq!(m.detect_intersections(0.,0),Err(IntersectionError::CandidateLimitExceeded));}
  #[test] fn rejects_degenerate_triangles(){let m=Mesh{vertices:vec![p(0.,0.,0.),p(1.,0.,0.),p(2.,0.,0.)],triangles:vec![[0,1,2]]};assert_eq!(m.detect_intersections(0.,100),Err(IntersectionError::DegenerateTriangle(0)));}
+ #[test] fn reports_near_coincident_vertex_contacts_without_suppressing(){
+  let m=Mesh{vertices:vec![p(0.,0.,0.),p(1.,0.,0.),p(0.,1.,0.),p(0.,0.,1e-12),p(0.,0.,1.),p(-1.,0.,0.)],triangles:vec![[0,1,2],[3,4,5]]};
+  let r=m.detect_intersections(1e-9,100).unwrap();assert_eq!(r.pairs,vec![(0,1)]);assert_eq!(r.near_coincident_vertex_pairs,vec![(0,1)]);
+ }
 }

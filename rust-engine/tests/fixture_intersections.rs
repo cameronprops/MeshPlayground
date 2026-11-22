@@ -16,7 +16,7 @@ fn test_known_intersections_on_real_fixtures(){
   let elapsed=t.elapsed().as_secs_f64();
   let marker_hits=marker.map(|id|report.pairs.iter().filter(|&&(a,b)|a==id||b==id).count());
   let other=report.pairs.iter().filter(|&&(a,b)|!marker.contains(&a)&&!marker.contains(&b)).count();
-  println!("FIXTURE {name} triangles={} boundary_edges={} degenerate_removed={} duplicate_removed={} candidates={} pairs={} injected_hits={marker_hits:?} other_pairs={other} shared_vertex_skipped={} seconds={elapsed:.6}",before.triangles,before.boundary_edges,clean.removed_degenerate,clean.removed_duplicate,report.candidate_pairs_tested,report.pairs.len(),report.shared_vertex_pairs_skipped);
+  println!("FIXTURE {name} triangles={} boundary_edges={} degenerate_removed={} duplicate_removed={} candidates={} pairs={} near_coincident={} injected_hits={marker_hits:?} other_pairs={other} shared_vertex_skipped={} seconds={elapsed:.6}",before.triangles,before.boundary_edges,clean.removed_degenerate,clean.removed_duplicate,report.candidate_pairs_tested,report.pairs.len(),report.near_coincident_vertex_pairs.len(),report.shared_vertex_pairs_skipped);
   assert!(marker_hits[0]>0 && marker_hits[1]>0,"missed injected crossing for {name}: {marker_hits:?}");
   if name=="teapot" {
    for tolerance in [0.0,1e-9] {

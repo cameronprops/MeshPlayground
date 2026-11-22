@@ -71,3 +71,5 @@ This is a policy API only, not a project file, interface setting, or enforcement
 ## Intersection triage (experimental)
 
 `Mesh::detect_intersections(tolerance, max_candidates)` returns pairs of triangle IDs whose interiors or boundaries intersect, using an axis-aligned broad phase followed by floating-point triangle tests. It does not modify the mesh. It rejects degenerate triangles and returns an error rather than an incomplete result if its candidate budget is exhausted. Pairs sharing any vertex are intentionally skipped, so intersections involving adjacent faces are not detected. Near-coplanar and near-contact cases can be numerically ambiguous. Detection does not resolve an intersection or establish printability, and performance on dense scans has not been benchmarked.
+
+Intersection reports separately label the subset of hits whose distinct vertex coordinates are within the requested distance tolerance. This classification does not remove a hit or weld vertices: a near-coincident point can be either a harmless seam contact or part of a real intersection. A caller must inspect it further. The current checker still skips pairs sharing an indexed vertex.
