@@ -1,6 +1,6 @@
 # Intersection fixtures
 
-These are compressed binary-STL copies of the three damaged meshes generated for the MeshPlayground repair benchmark. Each contains four removed face neighborhoods, six flipped faces, and two deliberately inserted independent triangles crossing an original surface. The generated teapot source has ten exactly degenerate faces and needs cleanup before the current detector can scan it; that cleanup can change topology. These files are intentionally broken.
+These are compressed binary-STL copies of the three damaged meshes generated for the MeshPlayground repair benchmark. Each contains four removed face neighborhoods, six flipped faces, and two deliberately inserted independent triangles crossing an original surface. An earlier OBJ benchmark marked ten very small teapot faces as degenerate using its fixed threshold; the Rust STL benchmark uses an exact-zero test and reported none. This distinction is important when comparing results. These files are intentionally broken.
 
 To run the fixture test locally:
 
