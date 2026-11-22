@@ -2,6 +2,7 @@
 //! Repair functions preserve existing vertex coordinates. STL import can weld
 //! bit-identical coordinates only. No floating-point tolerance welding is done.
 pub mod components;
+pub mod deviation;
 pub mod patch;
 pub mod subdivide;
 pub mod orient;
