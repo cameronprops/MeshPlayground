@@ -2,6 +2,7 @@
 //! Repair functions preserve existing vertex coordinates. STL import can weld
 //! bit-identical coordinates only. No floating-point tolerance welding is done.
 pub mod patch;
+pub mod orient;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::io::{self, Read, Write};
