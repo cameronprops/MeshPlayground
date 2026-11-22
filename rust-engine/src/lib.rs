@@ -3,6 +3,7 @@
 //! bit-identical coordinates only. No floating-point tolerance welding is done.
 pub mod components;
 pub mod deviation;
+pub mod document;
 pub mod intersections;
 pub mod patch;
 pub mod subdivide;
