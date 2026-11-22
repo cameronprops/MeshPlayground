@@ -1,9 +1,9 @@
 name: Rust geometry engine
 on:
   push:
-    paths: ["rust-engine/**", ".github/workflows/rust-engine.yml"]
+    paths: ["rust-engine/**", "benchmarks/fixtures/**", ".github/workflows/rust-engine.yml"]
   pull_request:
-    paths: ["rust-engine/**", ".github/workflows/rust-engine.yml"]
+    paths: ["rust-engine/**", "benchmarks/fixtures/**", ".github/workflows/rust-engine.yml"]
 permissions:
   contents: read
 jobs:
@@ -11,7 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Test engine
-        run: cargo test --manifest-path rust-engine/Cargo.toml
+      - name: Unpack mesh benchmark fixtures
+        run: |
+          mkdir -p "$RUNNER_TEMP/mesh-fixtures"
+          for file in benchmarks/fixtures/*.gz; do
+            gzip -dc "$file" > "$RUNNER_TEMP/mesh-fixtures/$(basename "${file%.gz}")"
+          done
+      - name: Test engine and known fixture defects
+        env:
+          MESH_FIXTURES: ${{ runner.temp }}/mesh-fixtures
+        run: cargo test --manifest-path rust-engine/Cargo.toml -- --nocapture
       - name: Check release build
         run: cargo build --release --manifest-path rust-engine/Cargo.toml
