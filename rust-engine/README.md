@@ -61,3 +61,9 @@ Local/grid remeshing, blending a reconstructed patch into its surroundings, cont
 ## Surface comparison (experimental)
 
 `deviation::sampled_deviation` compares two meshes in both directions, measuring sampled points against the other mesh's triangles. It returns sampled maximum and RMS distances in input coordinate units. Sampling uses each face's vertices, edge midpoints and centroid; this is not a certified Hausdorff bound, and larger errors between samples can be missed. The RMS is face-sample weighted, not uniformly area-weighted. The reference mesh cannot reveal the original shape of missing regions. The initial brute-force method is intended for small tests only and requires an explicit work budget; acceleration and adaptive error bounds are future work. CAD surface fitting and export are not implemented.
+
+## Tolerance settings groundwork
+
+`TolerancePolicy` resolves a project-default maximum deviation or an explicit per-operation override and labels the effective value's source and declared length unit. An override can be stricter or looser than the project setting; callers should show the effective value before applying an operation. Exact zero is allowed as an intent, not a guarantee that floating-point calculations or a given export format can meet it. Units are labels for existing mesh coordinates: no automatic unit conversion or file-format inference is performed.
+
+This is a policy API only, not a project file, interface setting, or enforcement mechanism. Existing geometry operations do not yet consume it. `assess_sampled_maximum` reports an observed exceedance or an inconclusive result; the current sampled comparison cannot certify that a surface meets the limit.

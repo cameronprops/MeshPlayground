@@ -5,6 +5,7 @@ pub mod components;
 pub mod deviation;
 pub mod patch;
 pub mod subdivide;
+pub mod tolerance;
 pub mod orient;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
