@@ -3,6 +3,7 @@
 //! bit-identical coordinates only. No floating-point tolerance welding is done.
 pub mod components;
 pub mod patch;
+pub mod subdivide;
 pub mod orient;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;

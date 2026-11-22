@@ -51,3 +51,9 @@ Connectivity is not solid classification. Intersecting surfaces that do not shar
 ## Headless conservative repair
 
 `meshplayground repair-safe INPUT.stl OUTPUT.stl` explicitly removes duplicate and exactly degenerate triangles, proposes consistent face winding and writes a new binary STL. It refuses to overwrite an existing output and refuses orientation if edges are non-manifold or constraints conflict. It reports before/after topology and makes no automatic assumptions about holes. It does not perform intersection detection, reconstruction, outward orientation, shelling or printability validation. Existing vertices are retained in memory, but STL uses 32-bit coordinates. Input/output are binary STL only. This is a first headless step, not a complete repair pipeline.
+
+## Local boundary subdivision
+
+`Mesh::propose_boundary_edge_subdivision` previews splitting one selected boundary edge at its midpoint, replacing its adjacent triangle with two triangles. It returns a separate result and preserves all original vertex coordinates. It does not smooth, alter adjacent faces, choose hole boundaries or create a hole patch. The intended surface remains the original triangle apart from floating-point rounding of the inserted midpoint; this is not a formal exact-arithmetic guarantee. A changed source invalidates the proposal. This first operation splits only one edge at a time, does not yet expose controls in a viewport, and has not been optimized for dense meshes.
+
+Local/grid remeshing, blending a reconstructed patch into its surroundings, controlled geometric deviation checks, and sharp-feature preservation remain design goals rather than implemented features. Remeshing can alter the surface even with original points fixed; it must be previewed and measured against the original.
