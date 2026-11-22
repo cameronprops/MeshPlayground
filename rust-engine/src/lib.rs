@@ -282,9 +282,7 @@ impl Mesh {
         }
         Ok(result)
     }
-    /// Analyze a cleanup without mutating the mesh. Only exact duplicates and
-    /// exactly zero-area triangles are candidates; no holes are filled.
-    pub fn propose_cleanup(&self, mask: Option<&[bool]>) -> Result<CleanupProposal,MeshError> {
+    fn cleanup_plan(&self, mask: Option<&[bool]>) -> Result<(Vec<bool>,CleanupReport),MeshError> {
         self.validate()?;
         if mask.is_some_and(|m|m.len()!=self.triangles.len()) {return Err(MeshError::MaskLength);}
         let mut seen=HashSet::new();
@@ -296,6 +294,12 @@ impl Mesh {
             if self.degenerate(f) {remove_face[i]=true;report.removed_degenerate+=1;continue;}
             if !seen.insert(canonical_face(f)) {remove_face[i]=true;report.removed_duplicate+=1;}
         }
+        Ok((remove_face,report))
+    }
+    /// Analyze a cleanup without mutating the mesh. Only exact duplicates and
+    /// exactly zero-area triangles are candidates; no holes are filled.
+    pub fn propose_cleanup(&self, mask: Option<&[bool]>) -> Result<CleanupProposal,MeshError> {
+        let (remove_face,report)=self.cleanup_plan(mask)?;
         Ok(CleanupProposal {source:self.clone(),remove_face,report})
     }
     /// Remove exact zero-area and duplicate triangles within the selected face mask.
@@ -303,10 +307,11 @@ impl Mesh {
     /// Unselected duplicates are preserved. If a selected face duplicates an unselected
     /// face, the unselected face is retained regardless of ordering.
     pub fn cleanup(&mut self, mask: Option<&[bool]>) -> Result<CleanupReport,MeshError> {
-        let proposal=self.propose_cleanup(mask)?;
-        self.triangles=self.triangles.iter().enumerate()
-            .filter_map(|(i,&f)|(!proposal.remove_face[i]).then_some(f)).collect();
-        Ok(proposal.report)
+        // Explicit in-place cleanup need not clone the entire source mesh or
+        // allocate another face vector. The plan is validated before mutation.
+        let (remove_face,report)=self.cleanup_plan(mask)?;
+        let mut i=0;self.triangles.retain(|_|{let keep=!remove_face[i];i+=1;keep});
+        Ok(report)
     }
 }
 
@@ -356,6 +361,14 @@ mod tests {
  #[test] fn open_plate_diagnostics(){let d=mesh().diagnose().unwrap();assert_eq!(d.boundary_edges,4);assert_eq!(d.inconsistent_edges,0);}
  #[test] fn selected_cleanup_preserves_unselected_face_and_positions(){let mut m=mesh();m.triangles.push([2,1,0]);let vertices=m.vertices.clone();let r=m.cleanup(Some(&[true,false,false])).unwrap();assert_eq!(r.removed_duplicate,1);assert_eq!(m.triangles,vec![[0,2,3],[2,1,0]]);assert_eq!(vertices,m.vertices);}
  #[test] fn invalid_mask_does_not_modify(){let mut m=mesh();let before=m.clone();assert_eq!(m.cleanup(Some(&[true])),Err(MeshError::MaskLength));assert_eq!(m,before);}
+ #[test] fn in_place_cleanup_matches_reviewed_proposal(){
+  let mut original=mesh();original.triangles.extend([[2,1,0],[0,0,1],[0,2,3]]);
+  for mask in [None,Some(vec![true,false,true,true,false]),Some(vec![false;5])]{
+   let proposal=original.propose_cleanup(mask.as_deref()).unwrap();let expected=proposal.apply(&original).unwrap();
+   let mut actual=original.clone();let report=actual.cleanup(mask.as_deref()).unwrap();
+   assert_eq!(actual,expected);assert_eq!(report,proposal.report);assert_eq!(actual.vertices,original.vertices);
+  }
+ }
  #[test] fn stl_round_trip(){let original=mesh();let mut bytes=Vec::new();write_binary_stl(&original,&mut bytes).unwrap();let restored=read_binary_stl(bytes.as_slice()).unwrap();assert_eq!(restored.diagnose().unwrap().boundary_edges,4);assert_eq!(restored.vertices.len(),4);}
  #[test] fn truncated_stl_is_rejected(){let m=mesh();let mut b=Vec::new();write_binary_stl(&m,&mut b).unwrap();b.pop();assert!(read_binary_stl(b.as_slice()).is_err());}
  #[test] fn inconsistent_edge_is_reported(){let mut m=mesh();m.triangles[1]=[0,3,2];assert_eq!(m.diagnose().unwrap().inconsistent_edges,1);}
