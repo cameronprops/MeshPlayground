@@ -41,3 +41,9 @@ After selecting an edge, `Mesh::expand_selected_boundary_edges` adds the rest of
 ## Face orientation proposal
 
 `Mesh::propose_consistent_orientation` generates a reviewable list of face reversals needed for shared edges to have consistent winding. Applying a proposal produces a separate mesh while preserving all vertex coordinates and rejects a changed source. It refuses degenerate faces, non-manifold edges and contradictory winding constraints. It handles each edge-connected component separately and chooses the consistent orientation with fewer face flips. Consistent winding does not establish which side is outside, especially for open meshes, disconnected parts, nested shells or cavities. Outward orientation, intersection repair, nested-shell classification and printability verification are not yet implemented.
+
+## Inspect and separate surface components
+
+`Mesh::propose_separation` identifies edge-connected groups of faces without changing geometry. Each group reports source face and vertex IDs, open-edge counts and nonmanifold-edge counts. A chosen group can be extracted as a separate mesh with a map back to the original IDs, preserving the original coordinates and triangle orientation. Extraction rejects a changed source. Vertices shared only at a point may occur in multiple extracted meshes; loose vertices without faces are not exported. Degenerate faces must be handled first.
+
+Connectivity is not solid classification. Intersecting surfaces that do not share indexed edges may be listed separately, nested shells may form one solid with cavities, and the engine does not yet cut intersections or compute a boolean union. The user will be able to choose to join geometry or separate parts; neither operation is inferred from this component report.

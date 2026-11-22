@@ -1,6 +1,7 @@
 //! Offline, indexed triangle mesh primitives.
 //! Repair functions preserve existing vertex coordinates. STL import can weld
 //! bit-identical coordinates only. No floating-point tolerance welding is done.
+pub mod components;
 pub mod patch;
 pub mod orient;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -21,7 +22,7 @@ impl Point3 {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mesh { pub vertices: Vec<Point3>, pub triangles: Vec<[usize; 3]> }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MeshError { InvalidVertex(usize), InvalidIndex(usize), MaskLength, TooManyTriangles }
+pub enum MeshError { InvalidVertex(usize), InvalidIndex(usize), DegenerateFace(usize), MaskLength, TooManyTriangles }
 impl fmt::Display for MeshError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{:?}", self) }
 }
