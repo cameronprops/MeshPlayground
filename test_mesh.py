@@ -26,3 +26,9 @@ bad=Mesh(v[:],f[:]);bad.f[3]=tuple(reversed(bad.f[3]));result=bad.patch()
 assert result['patched_loops']==0 and result['reasons']['inconsistent boundary winding']==1
 assert bad.v==v and len(bad.f)==len(f)
 print('PASS: nonplanar and crossing loops rejected; inconsistent winding left untouched')
+# Filling the perimeter of an isolated triangle would just duplicate that face.
+island=Mesh([(0.,0.,0.),(1.,0.,0.),(0.,1.,0.)],[(0,1,2)])
+r=island.patch()
+assert r['patched_loops']==0 and r['reasons']['isolated face boundary']==1
+assert island.f==[(0,1,2)]
+print('PASS: isolated triangle is not capped as a hole')

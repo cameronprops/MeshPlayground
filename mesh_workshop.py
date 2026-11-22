@@ -75,6 +75,10 @@ class Mesh:
    refs=[em[tuple(sorted((loop[i],loop[(i+1)%len(loop)])))][0] for i in range(len(loop))]
    # All faces adjacent to the loop must be painted in selected mode.
    if selected is not None and not all(ref[0] in selected for ref in refs):continue
+   # A boundary surrounding one existing triangle is an isolated face, not a
+   # hole to cap. Filling it duplicates the face and hides an unresolved defect.
+   if len(set(ref[0] for ref in refs))==1:
+    skipped+=1;reasons['isolated face boundary']+=1;continue
    directions=[(u,v)==(loop[i],loop[(i+1)%len(loop)]) for i,(_,u,v) in enumerate(refs)]
    if not (all(directions) or not any(directions)):
     skipped+=1;reasons['inconsistent boundary winding']+=1;continue

@@ -7,7 +7,7 @@ use crate::{edge, Mesh, Selection, SelectionError};
 #[derive(Clone, Debug, PartialEq)]
 pub enum PatchError {
     Selection(SelectionError), InvalidPlanarityTolerance, SelectExactlyOneClosedBoundary,
-    SelectEntireBoundary, InconsistentBoundaryWinding, DegenerateBoundary,
+    SelectEntireBoundary, IsolatedFaceBoundary, InconsistentBoundaryWinding, DegenerateBoundary,
     NonPlanarBoundary, NonConvexOrCollinearBoundary, SelfIntersectingBoundary, SourceChanged,
 }
 #[derive(Clone, Debug)]
@@ -36,6 +36,7 @@ impl Mesh {
         if boundaries.len()!=1 || !boundaries[0].closed {return Err(PatchError::SelectExactlyOneClosedBoundary);}
         let boundary=&boundaries[0];let wanted:HashSet<_>=boundary.edges.iter().copied().collect();
         if seed.edges!=wanted {return Err(PatchError::SelectEntireBoundary);}
+        if boundary.adjacent_faces.len()==1 {return Err(PatchError::IsolatedFaceBoundary);}
         let mut adjacency:BTreeMap<usize,Vec<usize>>=BTreeMap::new();
         for &(a,b) in &boundary.edges {adjacency.entry(a).or_default().push(b);adjacency.entry(b).or_default().push(a);}
         let start=boundary.vertices[0];let mut ordered=vec![start];let mut previous=start;let mut current=adjacency[&start][0];
@@ -99,4 +100,9 @@ mod tests {
  #[test] fn partial_boundary_is_rejected(){let (m,mut s)=cube();s.edges.remove(&edge(4,5));assert_eq!(m.propose_flat_patch(&s,0.).unwrap_err(),PatchError::SelectEntireBoundary);}
  #[test] fn nonplanar_and_stale_source_are_rejected(){let (mut m,s)=cube();let p=m.propose_flat_patch(&s,0.).unwrap();m.vertices[6].z+=0.1;assert_eq!(p.apply(&m).unwrap_err(),PatchError::SourceChanged);assert_eq!(m.propose_flat_patch(&s,0.001).unwrap_err(),PatchError::NonPlanarBoundary);}
  #[test] fn empty_and_bad_tolerance_fail(){let(m,_)=cube();assert_eq!(m.propose_flat_patch(&Selection::default(),0.).unwrap_err(),PatchError::SelectExactlyOneClosedBoundary);assert_eq!(m.propose_flat_patch(&Selection::default(),-1.).unwrap_err(),PatchError::InvalidPlanarityTolerance);}
+ #[test] fn isolated_triangle_is_not_a_hole_to_cap(){
+  let m=Mesh{vertices:vec![Point3{x:0.,y:0.,z:0.},Point3{x:1.,y:0.,z:0.},Point3{x:0.,y:1.,z:0.}],triangles:vec![[0,1,2]]};
+  let mut s=Selection::default();for(a,b) in [(0,1),(1,2),(2,0)]{s.select_edge(a,b);}
+  assert_eq!(m.propose_flat_patch(&s,0.).unwrap_err(),PatchError::IsolatedFaceBoundary);
+ }
 }

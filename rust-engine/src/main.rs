@@ -1,14 +1,32 @@
-use std::{env,fs::File,io::{BufReader,BufWriter},process::ExitCode};
-use meshplayground_engine::{read_binary_stl,write_binary_stl};
+use std::{env,fs::{File,OpenOptions},io::{BufReader,BufWriter,Write},path::Path,process::ExitCode};
+use meshplayground_engine::{read_binary_stl,write_binary_stl,Mesh};
+fn show(label:&str,mesh:&Mesh)->Result<(),Box<dyn std::error::Error>> {
+ let d=mesh.diagnose()?;
+ println!("{label}:\n  vertices: {}\n  triangles: {}\n  boundary edges: {}\n  non-manifold edges: {}\n  inconsistent shared edges: {}\n  degenerate triangles: {}\n  duplicate triangles: {}",d.vertices,d.triangles,d.boundary_edges,d.nonmanifold_edges,d.inconsistent_edges,d.degenerate_triangles,d.duplicate_triangles);
+ Ok(())
+}
 fn run()->Result<(),Box<dyn std::error::Error>> {
  let args:Vec<String>=env::args().collect();
- if args.len()<3 || !matches!(args[1].as_str(),"inspect"|"clean") || (args[1]=="clean" && args.len()!=4) || (args[1]=="inspect" && args.len()!=3) {
-  return Err("Usage: meshplayground inspect INPUT.stl | meshplayground clean INPUT.stl OUTPUT.stl".into());
+ if args.len()<3 || !matches!(args[1].as_str(),"inspect"|"clean"|"repair-safe") || (args[1]!="inspect" && args.len()!=4) || (args[1]=="inspect" && args.len()!=3) {
+  return Err("Usage: meshplayground inspect INPUT.stl | meshplayground clean INPUT.stl OUTPUT.stl | meshplayground repair-safe INPUT.stl OUTPUT.stl".into());
  }
- if args[1]=="clean" && std::path::Path::new(&args[2]).canonicalize().ok()==std::path::Path::new(&args[3]).canonicalize().ok() && std::path::Path::new(&args[3]).exists() {return Err("Input and output must be different files".into());}
- let mut mesh=read_binary_stl(BufReader::new(File::open(&args[2])?))?;let before=mesh.diagnose()?;
- println!("Vertices: {}\nTriangles: {}\nBoundary edges: {}\nNon-manifold edges: {}\nInconsistent edges: {}\nDegenerate triangles: {}\nDuplicate triangles: {}",before.vertices,before.triangles,before.boundary_edges,before.nonmanifold_edges,before.inconsistent_edges,before.degenerate_triangles,before.duplicate_triangles);
- if args[1]=="clean" {let report=mesh.cleanup(None)?;write_binary_stl(&mesh,BufWriter::new(File::create(&args[3])?))?;println!("Removed {} degenerate and {} duplicate triangles. Coordinates were not moved. STL uses float32.",report.removed_degenerate,report.removed_duplicate);}
+ let mut mesh=read_binary_stl(BufReader::new(File::open(&args[2])?))?;show("Before",&mesh)?;
+ if args[1]!="inspect" {
+  let output=Path::new(&args[3]);
+  if output.exists(){return Err("Output already exists; choose a new path".into());}
+  let cleanup=mesh.cleanup(None)?;println!("Proposed cleanup: {} degenerate, {} duplicate triangles removed.",cleanup.removed_degenerate,cleanup.removed_duplicate);
+  if args[1]=="repair-safe" {
+   let proposal=mesh.propose_consistent_orientation().map_err(|e|format!("Cannot safely orient mesh: {e:?}"))?;
+   let flipped=proposal.flipped_face_ids().count();mesh=proposal.apply(&mesh).map_err(|e|format!("Orientation proposal failed: {e:?}"))?;
+   println!("Orientation: {flipped} faces reversed across {} components. Outward-facing orientation is not verified.",proposal.components);
+  }
+  show("After",&mesh)?;
+  // create_new prevents accidental overwrites, including input paths.
+  let output_file=OpenOptions::new().write(true).create_new(true).open(output)?;
+  let write_result=(||->std::io::Result<()>{let mut w=BufWriter::new(output_file);write_binary_stl(&mesh,&mut w)?;w.flush()})();
+  if let Err(e)=write_result {let _=std::fs::remove_file(output);return Err(e.into());}
+  println!("Saved {}. Existing vertex positions were not moved; STL stores float32. Holes and intersections are not repaired or validated.",output.display());
+ }
  Ok(())
 }
 fn main()->ExitCode{match run(){Ok(())=>ExitCode::SUCCESS,Err(e)=>{eprintln!("Error: {e}");ExitCode::FAILURE}}}
