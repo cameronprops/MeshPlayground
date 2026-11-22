@@ -23,3 +23,8 @@ jobs:
         run: cargo test --manifest-path rust-engine/Cargo.toml -- --nocapture
       - name: Check release build
         run: cargo build --release --manifest-path rust-engine/Cargo.toml
+      - name: Compare topology peak memory
+        run: |
+          cargo build --release --manifest-path rust-engine/Cargo.toml --example topology_memory
+          /usr/bin/time -f 'legacy peak_rss_kib=%M elapsed_seconds=%e' rust-engine/target/release/examples/topology_memory 450 legacy
+          /usr/bin/time -f 'compact peak_rss_kib=%M elapsed_seconds=%e' rust-engine/target/release/examples/topology_memory 450 compact

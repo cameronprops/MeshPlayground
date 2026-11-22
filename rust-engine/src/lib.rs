@@ -127,8 +127,10 @@ impl CleanupProposal {
         Ok(Mesh { vertices: source.vertices.clone(), triangles })
     }
 }
+/// Aggregate only the information needed by diagnostics and boundary selection.
+/// An edge no longer allocates a separate Vec for its incident triangle uses.
 #[derive(Clone, Copy, Debug)]
-struct EdgeUse { from: usize, to: usize }
+struct EdgeSummary { count: usize, first_forward: bool, first_two_match: bool }
 fn edge(a: usize, b: usize) -> (usize, usize) { if a < b {(a,b)} else {(b,a)} }
 fn canonical_face(mut f:[usize;3])->[usize;3] { f.sort_unstable(); f }
 impl Mesh {
@@ -189,11 +191,15 @@ impl Mesh {
         let [a,b,c]=f.map(|i|self.vertices[i]);
         b.sub(a).cross(c.sub(a)).magnitude2() == 0.0
     }
-    fn edge_uses(&self) -> BTreeMap<(usize,usize),Vec<EdgeUse>> {
-        let mut edges:BTreeMap<_,Vec<EdgeUse>>=BTreeMap::new();
+    fn edge_uses(&self) -> BTreeMap<(usize,usize),EdgeSummary> {
+        let mut edges:BTreeMap<_,EdgeSummary>=BTreeMap::new();
         for &[a,b,c] in &self.triangles {
             for (from,to) in [(a,b),(b,c),(c,a)] {
-                edges.entry(edge(from,to)).or_default().push(EdgeUse{from,to});
+                let key=edge(from,to);let forward=(from,to)==key;
+                edges.entry(key).and_modify(|s|{
+                    if s.count==1 {s.first_two_match=s.first_forward==forward;}
+                    s.count+=1;
+                }).or_insert(EdgeSummary {count:1,first_forward:forward,first_two_match:false});
             }
         }
         edges
@@ -213,7 +219,7 @@ impl Mesh {
         for (face,&[a,b,c]) in self.triangles.iter().enumerate() {
             for (u,v) in [(a,b),(b,c),(c,a)] {
                 let e=edge(u,v);
-                if edges.get(&e).is_some_and(|uses|uses.len()==1) {
+                if edges.get(&e).is_some_and(|uses|uses.count==1) {
                     boundary_face.insert(e,face);
                 }
             }
@@ -270,8 +276,8 @@ impl Mesh {
             if !seen.insert(canonical_face(f)) { result.duplicate_triangles+=1; }
         }
         for uses in self.edge_uses().values() {
-            match uses.len() { 1=>result.boundary_edges+=1, 2=>{
-                if uses[0].from==uses[1].from && uses[0].to==uses[1].to {result.inconsistent_edges+=1;}
+            match uses.count { 1=>result.boundary_edges+=1, 2=>{
+                if uses.first_two_match {result.inconsistent_edges+=1;}
             }, n if n>2=>result.nonmanifold_edges+=1, _=>{} }
         }
         Ok(result)
@@ -354,6 +360,14 @@ mod tests {
  #[test] fn truncated_stl_is_rejected(){let m=mesh();let mut b=Vec::new();write_binary_stl(&m,&mut b).unwrap();b.pop();assert!(read_binary_stl(b.as_slice()).is_err());}
  #[test] fn inconsistent_edge_is_reported(){let mut m=mesh();m.triangles[1]=[0,3,2];assert_eq!(m.diagnose().unwrap().inconsistent_edges,1);}
  #[test] fn invalid_indices_reported(){let mut m=mesh();m.triangles.push([0,1,99]);assert_eq!(m.diagnose(),Err(MeshError::InvalidIndex(2)));}
+ #[test] fn compact_edge_summaries_match_previous_behavior(){
+  // Includes reversed winding, repeated/degenerate faces and a non-manifold edge.
+  let mut m=mesh();m.triangles.extend([[0,1,2],[1,0,3],[0,0,2],[2,0,3]]);
+  let mut old:BTreeMap<(usize,usize),Vec<(usize,usize)>>=BTreeMap::new();
+  for &[a,b,c] in &m.triangles {for (u,v) in [(a,b),(b,c),(c,a)] {old.entry(edge(u,v)).or_default().push((u,v));}}
+  let compact=m.edge_uses();assert_eq!(old.len(),compact.len());
+  for (key,uses) in old {let actual=compact[&key];assert_eq!(actual.count,uses.len());if uses.len()==2{assert_eq!(actual.first_two_match,uses[0]==uses[1]);}}
+ }
  #[test] fn proposal_leaves_source_untouched_and_lists_face_ids(){
   let mut original=mesh();original.triangles.push([2,1,0]);
   let before=original.clone();let proposal=original.propose_cleanup(None).unwrap();
