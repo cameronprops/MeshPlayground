@@ -29,3 +29,7 @@ The library represents vertex, edge and triangle-face selections. `Mesh::selecte
 ## Pointer selection groundwork
 
 `Mesh::pick` finds the nearest triangle intersected by a supplied 3D ray and can identify its face, nearest edge or nearest vertex. Vertex/edge hit tolerance is specified in mesh units at the surface intersection. `Selection::apply` supports replace, add, remove and toggle operations, validating the target before changing the selection. A viewport must generate the ray and convert pixel hit radius to world units; neither the viewport nor pixel-space hit testing is implemented. Picking currently scans every triangle and is not optimized or benchmarked for large scans. Selecting an edge or vertex requires the ray to intersect a triangle, so silhouette and screen-space picking need further work. Geometry is not modified.
+
+### Expand a clicked edge to its boundary
+
+After selecting an edge, `Mesh::expand_selected_boundary_edges` adds the rest of each connected closed boundary to the edge selection. The operation is explicit: a click by itself remains a single-edge selection. The function preserves other selections and mesh geometry, reports branched boundaries without expanding them, and returns an error without modifying the selection for invalid edge IDs. This is a geometry-engine API; the viewport and its selection command are not built yet.

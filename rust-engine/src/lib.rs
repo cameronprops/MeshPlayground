@@ -87,6 +87,9 @@ pub struct Boundary {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SelectionError { InvalidMesh(MeshError), InvalidVertex(usize), InvalidEdge(usize,usize), InvalidFace(usize) }
+/// Result of explicitly expanding selected edges to closed boundary components.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BoundaryExpansion { pub closed_boundaries: usize, pub added_edges: usize, pub skipped_non_closed: usize }
 
 /// A reviewable cleanup proposal. The source snapshot prevents applying a
 /// proposal to a different mesh or a mesh that changed after inspection.
@@ -232,6 +235,24 @@ impl Mesh {
         }
         Ok(result)
     }
+    /// Expand only the selected boundary edges to their complete closed loops.
+    /// This is an explicit selection command, never a geometry operation.
+    /// Interior edges stay selected; branched components are reported and left
+    /// unchanged. Invalid selection fails before any selection is mutated.
+    pub fn expand_selected_boundary_edges(&self, selection:&mut Selection) -> Result<BoundaryExpansion,SelectionError> {
+        let mut seed=Selection::default();
+        seed.edges=selection.edges.clone();
+        let boundaries=self.selected_boundaries(&seed)?;
+        let mut result=BoundaryExpansion::default();
+        for boundary in boundaries {
+            if !boundary.closed {result.skipped_non_closed+=1;continue;}
+            result.closed_boundaries+=1;
+            for (a,b) in boundary.edges {
+                if selection.edges.insert(edge(a,b)) {result.added_edges+=1;}
+            }
+        }
+        Ok(result)
+    }
     /// Read-only topology report. No epsilon or model-size assumptions.
     pub fn diagnose(&self) -> Result<Diagnostics,MeshError> {
         self.validate()?;
@@ -367,6 +388,28 @@ mod tests {
   let mut original=mesh();original.vertices.extend([Point3{x:2.,y:0.,z:0.},Point3{x:2.,y:1.,z:0.}]);
   original.triangles.push([2,4,5]);let mut selection=Selection::default();selection.vertices.insert(2);
   let boundaries=original.selected_boundaries(&selection).unwrap();assert_eq!(boundaries.len(),1);assert!(!boundaries[0].closed);
+ }
+ #[test] fn explicit_boundary_expansion_keeps_other_selections_and_geometry(){
+  let original=mesh();let before=original.clone();let mut s=Selection::default();
+  s.select_edge(1,0);s.vertices.insert(2);s.faces.insert(0);
+  let result=original.expand_selected_boundary_edges(&mut s).unwrap();
+  assert_eq!(result,BoundaryExpansion{closed_boundaries:1,added_edges:3,skipped_non_closed:0});
+  assert_eq!(s.edges.len(),4);assert!(s.vertices.contains(&2));assert!(s.faces.contains(&0));
+  assert_eq!(original,before);
+ }
+ #[test] fn expansion_does_not_guess_from_interior_edge_or_vertex(){
+  let original=mesh();let mut s=Selection::default();s.select_edge(0,2);s.vertices.insert(0);
+  let before=s.clone();assert_eq!(original.expand_selected_boundary_edges(&mut s).unwrap(),BoundaryExpansion::default());assert_eq!(s,before);
+ }
+ #[test] fn expansion_skips_branched_boundary(){
+  let mut m=mesh();m.vertices.extend([Point3{x:2.,y:0.,z:0.},Point3{x:2.,y:1.,z:0.}]);m.triangles.push([2,4,5]);
+  let mut s=Selection::default();s.select_edge(4,5);let before=s.clone();
+  let report=m.expand_selected_boundary_edges(&mut s).unwrap();
+  assert_eq!(report.skipped_non_closed,1);assert_eq!(s,before);
+ }
+ #[test] fn expansion_with_invalid_edge_is_atomic(){
+  let original=mesh();let mut s=Selection::default();s.select_edge(0,1);s.select_edge(0,99);let before=s.clone();
+  assert!(original.expand_selected_boundary_edges(&mut s).is_err());assert_eq!(s,before);
  }
  fn ray(x:f64,y:f64)->Ray {Ray{origin:Point3{x,y,z:2.},direction:Point3{x:0.,y:0.,z:-1.}}}
  #[test] fn pointer_picks_face_edge_and_vertex(){
