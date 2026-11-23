@@ -10,6 +10,7 @@ pub mod subdivide;
 pub mod scene;
 pub mod tolerance;
 pub mod orient;
+pub mod obj;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::io::{self, Read, Write};

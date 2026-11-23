@@ -3,6 +3,7 @@ name = "meshplayground-engine"
 version = "0.1.0"
 edition = "2021"
 description = "Offline geometry core for MeshPlayground"
+license = "MIT"
 
 [lib]
 name = "meshplayground_engine"
