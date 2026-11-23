@@ -1,0 +1,185 @@
+{
+  "notes": [
+    "Triangle comparison ignores orientation, uses the stated precision, and is not a surface-distance measurement.",
+    "Intersection counts are only available for the Blender baseline and exclude pairs that share a vertex.",
+    "Blender triangle comparisons normalize both sides to float32; vertex displacement compares original values by index and may include float rounding or reordering.",
+    "These benchmarks do not prove printability."
+  ],
+  "models": {
+    "sphere": {
+      "input": {
+        "triangles": 8925,
+        "topology": {
+          "vertices": 4520,
+          "triangles": 8925,
+          "boundary_edges": 67,
+          "nonmanifold_edges": 0,
+          "degenerate": 0
+        }
+      },
+      "python_flat_patch": {
+        "elapsed_seconds": 0.047922,
+        "report": {
+          "patched_loops": 0,
+          "added_triangles": 0,
+          "skipped": 6,
+          "reasons": {
+            "nonplanar boundary": 4,
+            "isolated face boundary": 2
+          }
+        },
+        "comparison_precision": "original",
+        "reference_faces_missing": 101,
+        "output_faces_absent_from_reference": 2,
+        "input_faces_removed": 0,
+        "new_faces_added": 0,
+        "original_vertices_same_index_and_coordinate": true,
+        "max_index_matched_vertex_displacement_mesh_units": 0.0,
+        "topology": {
+          "vertices": 4520,
+          "triangles": 8925,
+          "boundary_edges": 67,
+          "nonmanifold_edges": 0,
+          "degenerate": 0
+        }
+      },
+      "blender_fill": {
+        "ok": true,
+        "elapsed_seconds": 0.006975669999974343,
+        "new_polygons_before_triangulation": 3,
+        "intersection_pairs_excluding_shared_vertex": 2,
+        "comparison_precision": "float32",
+        "reference_faces_missing": 83,
+        "output_faces_absent_from_reference": 18,
+        "input_faces_removed": 0,
+        "new_faces_added": 34,
+        "original_vertices_same_index_and_coordinate": false,
+        "max_index_matched_vertex_displacement_mesh_units": 2.5969063885372886e-06,
+        "topology": {
+          "vertices": 4520,
+          "triangles": 8959,
+          "boundary_edges": 27,
+          "nonmanifold_edges": 0,
+          "degenerate": 0
+        }
+      }
+    },
+    "cube": {
+      "input": {
+        "triangles": 15445,
+        "topology": {
+          "vertices": 7784,
+          "triangles": 15445,
+          "boundary_edges": 75,
+          "nonmanifold_edges": 0,
+          "degenerate": 0
+        }
+      },
+      "python_flat_patch": {
+        "elapsed_seconds": 0.045345,
+        "report": {
+          "patched_loops": 1,
+          "added_triangles": 19,
+          "skipped": 5,
+          "reasons": {
+            "nonplanar boundary": 2,
+            "inconsistent boundary winding": 1,
+            "isolated face boundary": 2
+          }
+        },
+        "comparison_precision": "original",
+        "reference_faces_missing": 105,
+        "output_faces_absent_from_reference": 17,
+        "input_faces_removed": 0,
+        "new_faces_added": 19,
+        "original_vertices_same_index_and_coordinate": true,
+        "max_index_matched_vertex_displacement_mesh_units": 0.0,
+        "topology": {
+          "vertices": 7784,
+          "triangles": 15464,
+          "boundary_edges": 54,
+          "nonmanifold_edges": 0,
+          "degenerate": 0
+        }
+      },
+      "blender_fill": {
+        "ok": true,
+        "elapsed_seconds": 0.012886280999964583,
+        "new_polygons_before_triangulation": 1,
+        "intersection_pairs_excluding_shared_vertex": 2,
+        "comparison_precision": "float32",
+        "reference_faces_missing": 105,
+        "output_faces_absent_from_reference": 2,
+        "input_faces_removed": 0,
+        "new_faces_added": 4,
+        "original_vertices_same_index_and_coordinate": false,
+        "max_index_matched_vertex_displacement_mesh_units": 3.2508682162864924e-06,
+        "topology": {
+          "vertices": 7784,
+          "triangles": 15449,
+          "boundary_edges": 69,
+          "nonmanifold_edges": 0,
+          "degenerate": 0
+        }
+      }
+    },
+    "teapot": {
+      "input": {
+        "triangles": 22157,
+        "topology": {
+          "vertices": 11136,
+          "triangles": 22157,
+          "boundary_edges": 67,
+          "nonmanifold_edges": 0,
+          "degenerate": 10
+        }
+      },
+      "python_flat_patch": {
+        "elapsed_seconds": 0.103769,
+        "report": {
+          "patched_loops": 0,
+          "added_triangles": 0,
+          "skipped": 6,
+          "reasons": {
+            "nonplanar boundary": 4,
+            "isolated face boundary": 2
+          }
+        },
+        "comparison_precision": "original",
+        "reference_faces_missing": 109,
+        "output_faces_absent_from_reference": 2,
+        "input_faces_removed": 0,
+        "new_faces_added": 0,
+        "original_vertices_same_index_and_coordinate": true,
+        "max_index_matched_vertex_displacement_mesh_units": 0.0,
+        "topology": {
+          "vertices": 11136,
+          "triangles": 22157,
+          "boundary_edges": 67,
+          "nonmanifold_edges": 0,
+          "degenerate": 10
+        }
+      },
+      "blender_fill": {
+        "ok": true,
+        "elapsed_seconds": 0.020443311999997604,
+        "new_polygons_before_triangulation": 3,
+        "intersection_pairs_excluding_shared_vertex": 2,
+        "comparison_precision": "float32",
+        "reference_faces_missing": 92,
+        "output_faces_absent_from_reference": 24,
+        "input_faces_removed": 0,
+        "new_faces_added": 39,
+        "original_vertices_same_index_and_coordinate": false,
+        "max_index_matched_vertex_displacement_mesh_units": 1.7380972234296275e-06,
+        "topology": {
+          "vertices": 11136,
+          "triangles": 22196,
+          "boundary_edges": 22,
+          "nonmanifold_edges": 0,
+          "degenerate": 10
+        }
+      }
+    }
+  }
+}

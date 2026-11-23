@@ -1,0 +1,99 @@
+# Rust geometry engine
+
+This is the first piece of the planned standalone Rust application. It is an independent geometry library and small command-line program using only the Rust standard library. It does not require Python at runtime or connect to the internet. The Python UI remains a separate experimental reference and does not call this engine.
+
+This first increment reads binary STL, welds exact matching STL vertices for topology, reports topology diagnostics, and removes exactly degenerate and duplicate triangles. The library supports a per-face selection mask for cleanup. Existing vertex coordinates remain unchanged in memory. It does not patch holes, shell, paint, or render yet. STL export stores float32 coordinates and may round values. STL does not encode units.
+
+```sh
+cargo test --manifest-path rust-engine/Cargo.toml
+cargo run --manifest-path rust-engine/Cargo.toml -- inspect input.stl
+cargo run --manifest-path rust-engine/Cargo.toml -- clean input.stl output.stl
+```
+
+The input and output must be different files. Inspect results before fabrication. Duplicate detection compares face vertex indices, not near-coincident geometry. Degeneracy means exactly zero area; near-zero tolerance handling is a future design decision.
+
+Performance is not benchmarked. Topology currently uses a sorted edge map, which prioritizes deterministic reports; profiling will inform changes. This increment is designed to establish testable behavior, not to claim scan-scale performance.
+
+## User-directed preservation
+
+MeshPlayground is intended to help a person inspect, select, preview, and accept repairs. The program does not infer that an opening should be closed based on size. The library now supports a read-only cleanup proposal that lists original face IDs to be removed. Applying it returns a separate mesh, preserves all original vertex positions and unmodified faces, and rejects a proposal if its source mesh has changed since review. The existing command-line `clean` operation is an explicitly requested whole-mesh action; it is not a GUI preview.
+
+The current proposal retains a full source snapshot for reliable stale-proposal detection. This is intentionally simple but duplicates memory. A future scan-scale implementation needs stable mesh revision IDs or another measured approach; performance has not been established. A vertex-preserving patch can still approximate the missing surface incorrectly or intersect other geometry. Patch preview, surface deviation measurement, intersection tests, and user acceptance are not implemented yet.
+
+Coordinates have no intrinsic units. No default movement tolerance is assumed. STL export has float32 precision and can change coordinate values through rounding.
+
+## Element selection
+
+The library represents vertex, edge and triangle-face selections. `Mesh::selected_boundaries` discovers connected open-boundary components touching the selected elements without modifying the mesh. A selected interior edge does not imply selecting the nearest boundary. Returned components include original vertex, edge and adjacent-face IDs and distinguish closed loops from branched boundaries. Selecting a boundary is for inspection; it never patches it automatically. Selection is currently a library API, not a visual interface. Mesh IDs are revision-specific and must be discarded or remapped after topology changes.
+
+## Pointer selection groundwork
+
+`Mesh::pick` finds the nearest triangle intersected by a supplied 3D ray and can identify its face, nearest edge or nearest vertex. Vertex/edge hit tolerance is specified in mesh units at the surface intersection. `Selection::apply` supports replace, add, remove and toggle operations, validating the target before changing the selection. A viewport must generate the ray and convert pixel hit radius to world units; neither the viewport nor pixel-space hit testing is implemented. Picking currently scans every triangle and is not optimized or benchmarked for large scans. Selecting an edge or vertex requires the ray to intersect a triangle, so silhouette and screen-space picking need further work. Geometry is not modified.
+
+### Expand a clicked edge to its boundary
+
+After selecting an edge, `Mesh::expand_selected_boundary_edges` adds the rest of each connected closed boundary to the edge selection. The operation is explicit: a click by itself remains a single-edge selection. The function preserves other selections and mesh geometry, reports branched boundaries without expanding them, and returns an error without modifying the selection for invalid edge IDs. This is a geometry-engine API; the viewport and its selection command are not built yet.
+
+## Experimental flat patch proposal
+
+`Mesh::propose_flat_patch` previews a fan triangulation of exactly one explicitly selected, complete, closed and consistently wound convex boundary. The caller supplies a planarity tolerance in mesh units. Concave, collinear, self-intersecting, nonplanar beyond tolerance, incomplete or branched boundaries are rejected. The returned proposal lists new triangles and maximum boundary deviation from its fitted plane; it never changes existing vertices or removes faces. Applying the preview returns a separate mesh only if the source is unchanged. This is an engine API, not a GUI. It does not detect collisions with surrounding geometry or infer the intended missing shape. Preview and inspect the result before use. The prototype checks intersections and winding with simple scans and has not been optimized or benchmarked for large scan boundaries. A nonzero tolerance permits slightly nonplanar boundaries, so the resulting triangles need not form a mathematically flat surface.
+
+## Face orientation proposal
+
+`Mesh::propose_consistent_orientation` generates a reviewable list of face reversals needed for shared edges to have consistent winding. Applying a proposal produces a separate mesh while preserving all vertex coordinates and rejects a changed source. It refuses degenerate faces, non-manifold edges and contradictory winding constraints. It handles each edge-connected component separately and chooses the consistent orientation with fewer face flips. Consistent winding does not establish which side is outside, especially for open meshes, disconnected parts, nested shells or cavities. Outward orientation, intersection repair, nested-shell classification and printability verification are not yet implemented.
+
+## Inspect and separate surface components
+
+`Mesh::propose_separation` identifies edge-connected groups of faces without changing geometry. Each group reports source face and vertex IDs, open-edge counts and nonmanifold-edge counts. A chosen group can be extracted as a separate mesh with a map back to the original IDs, preserving the original coordinates and triangle orientation. Extraction rejects a changed source. Vertices shared only at a point may occur in multiple extracted meshes; loose vertices without faces are not exported. Degenerate faces must be handled first.
+
+Connectivity is not solid classification. Intersecting surfaces that do not share indexed edges may be listed separately, nested shells may form one solid with cavities, and the engine does not yet cut intersections or compute a boolean union. The user will be able to choose to join geometry or separate parts; neither operation is inferred from this component report.
+
+## Headless conservative repair
+
+`meshplayground repair-safe INPUT.stl OUTPUT.stl` explicitly removes duplicate and exactly degenerate triangles, proposes consistent face winding and writes a new binary STL. It refuses to overwrite an existing output and refuses orientation if edges are non-manifold or constraints conflict. It reports before/after topology and makes no automatic assumptions about holes. It does not perform intersection detection, reconstruction, outward orientation, shelling or printability validation. Existing vertices are retained in memory, but STL uses 32-bit coordinates. Input/output are binary STL only. This is a first headless step, not a complete repair pipeline.
+
+## Local boundary subdivision
+
+`Mesh::propose_boundary_edge_subdivision` previews splitting one selected boundary edge at its midpoint, replacing its adjacent triangle with two triangles. It returns a separate result and preserves all original vertex coordinates. It does not smooth, alter adjacent faces, choose hole boundaries or create a hole patch. The intended surface remains the original triangle apart from floating-point rounding of the inserted midpoint; this is not a formal exact-arithmetic guarantee. A changed source invalidates the proposal. This first operation splits only one edge at a time, does not yet expose controls in a viewport, and has not been optimized for dense meshes.
+
+Local/grid remeshing, blending a reconstructed patch into its surroundings, controlled geometric deviation checks, and sharp-feature preservation remain design goals rather than implemented features. Remeshing can alter the surface even with original points fixed; it must be previewed and measured against the original.
+
+## Surface comparison (experimental)
+
+`deviation::sampled_deviation` compares two meshes in both directions, measuring sampled points against the other mesh's triangles. It returns sampled maximum and RMS distances in input coordinate units. Sampling uses each face's vertices, edge midpoints and centroid; this is not a certified Hausdorff bound, and larger errors between samples can be missed. The RMS is face-sample weighted, not uniformly area-weighted. The reference mesh cannot reveal the original shape of missing regions. The initial brute-force method is intended for small tests only and requires an explicit work budget; acceleration and adaptive error bounds are future work. CAD surface fitting and export are not implemented.
+
+## Tolerance settings groundwork
+
+`TolerancePolicy` resolves a project-default maximum deviation or an explicit per-operation override and labels the effective value's source and declared length unit. An override can be stricter or looser than the project setting; callers should show the effective value before applying an operation. Exact zero is allowed as an intent, not a guarantee that floating-point calculations or a given export format can meet it. Units are labels for existing mesh coordinates: no automatic unit conversion or file-format inference is performed.
+
+This is a policy API only, not a project file, interface setting, or enforcement mechanism. Existing geometry operations do not yet consume it. `assess_sampled_maximum` reports an observed exceedance or an inconclusive result; the current sampled comparison cannot certify that a surface meets the limit.
+
+## Intersection triage (experimental)
+
+`Mesh::detect_intersections(tolerance, max_candidates)` returns pairs of triangle IDs whose interiors or boundaries intersect, using an axis-aligned broad phase followed by floating-point triangle tests. It does not modify the mesh. It rejects degenerate triangles and returns an error rather than an incomplete result if its candidate budget is exhausted. Pairs sharing any vertex are intentionally skipped, so intersections involving adjacent faces are not detected. Near-coplanar and near-contact cases can be numerically ambiguous. Detection does not resolve an intersection or establish printability, and performance on dense scans has not been benchmarked.
+
+Intersection reports separately label the subset of hits whose distinct vertex coordinates are within the requested distance tolerance. This classification does not remove a hit or weld vertices: a near-coincident point can be either a harmless seam contact or part of a real intersection. A caller must inspect it further. The current checker still skips pairs sharing an indexed vertex.
+
+## Topology memory benchmark
+
+Topology analysis stores one compact edge summary per unique edge instead of allocating a separate incident-use vector per edge. `examples/topology_memory.rs` compares the current and previous approaches on the same generated triangle grid, reporting identical topology counts and elapsed time. Run the two modes in separate processes under an operating-system peak-RSS tool, for example `/usr/bin/time -v ... topology_memory 450 legacy` and `... compact`. Peak RSS includes the generated mesh, runtime, and allocator overhead, not just the edge index. This synthetic grid is not representative of every scan. Surface components, orientation and repair proposals still have separate allocation costs, including full mesh snapshots.
+
+Explicit in-place `Mesh::cleanup` now computes the same selection-aware cleanup plan without retaining a full source snapshot, then removes faces in place. It validates the plan before changing the mesh. The separate reviewable `propose_cleanup` API still retains a full snapshot to detect stale proposals, and returning a separate applied mesh still requires a copy. Cleanup does not move vertices.
+
+## Optional face groups
+
+`document::MeshDocument` associates one optional primary group with each triangle. Group IDs are document-local, nonzero and not reused. Unassigned meshes allocate no per-face group table; once needed, `Option<NonZeroU32>` stores four bytes per face, plus vector capacity and group metadata. Groups do not duplicate or disconnect geometry. Explicit cleanup remaps retained faces, orientation retains membership, subdivision inherits the parent face's group, and patch faces are ungrouped unless an existing group is specified. The wrapper does not allow unrestricted mutable mesh access, preventing its face mapping from silently drifting; direct use of `Mesh` has no group metadata. The original `Mesh` APIs remain available without groups.
+
+This is an in-memory triangle-mesh foundation, not a complete scene/CAD document. Groups, names and mappings are not yet persisted, exposed in a UI or read/written through formats. There is no overlapping tag system, stable per-face ID system, attribute model or general undo yet. STL cannot retain groups.
+
+## Shared scene foundations
+
+The `scene` module provides in-memory resource definitions, instances and a parent hierarchy, with validated affine transforms that are evaluated without baking them into source coordinates. Mesh resources are shared with `Arc` so multiple scene nodes can reference one mesh document without copying its vertex arrays. 2D paths currently support line and cubic Bézier segments and stay separate from meshes. Scene units can explicitly be unknown; unit conversion is a separate checked operation and never silently changes stored geometry. Coordinate-frame metadata is optional and validates independent up and forward axes.
+
+This is a first in-memory representation, not import/export, persistence, a CAD B-rep, SVG rendering, a unit-converting scene editor, or a guarantee of lossless interchange. Paths do not yet capture all SVG/DXF types, styles or arc semantics. Source provenance and per-object unit handling remain future work. Identifiers are session-local; there is no deletion/reparenting API or stable on-disk identity yet. Conversion uses floating-point arithmetic and can round.
+
+## OBJ geometry subset
+
+`ObjGeometry::parse` and `write` support a deliberately strict geometry-only subset of OBJ: three-coordinate `v`, one-to-three-coordinate `vt`, `vn`, and polygon `f` with separate face-corner position, UV and normal indices, including negative indices. A read/write preserves numeric f64 values, polygon order, and those independent indices, not original whitespace/comments. The adapter retains common `o`, `g`, `s`, `mtllib` and `usemtl` directives in their face order. Material libraries and textures remain external references and are not loaded or packaged. Unsupported records, including vertex colors/weights, lines, free-form surfaces and curves, are rejected rather than silently dropped. Full OBJ/MTL support is not implemented. No implicit units are assigned.
+
+`try_triangle_mesh` is explicit and refuses n-gons, directives or any texture/normal arrays rather than dropping them. No triangulation or welding is done. This limited adapter is a library API, not yet connected to the headless repair command or scene document.

@@ -1,0 +1,30 @@
+name: Rust geometry engine
+on:
+  push:
+    paths: ["rust-engine/**", "benchmarks/fixtures/**", ".github/workflows/rust-engine.yml"]
+  pull_request:
+    paths: ["rust-engine/**", "benchmarks/fixtures/**", ".github/workflows/rust-engine.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack mesh benchmark fixtures
+        run: |
+          mkdir -p "$RUNNER_TEMP/mesh-fixtures"
+          for file in benchmarks/fixtures/*.gz; do
+            gzip -dc "$file" > "$RUNNER_TEMP/mesh-fixtures/$(basename "${file%.gz}")"
+          done
+      - name: Test engine and known fixture defects
+        env:
+          MESH_FIXTURES: ${{ runner.temp }}/mesh-fixtures
+        run: cargo test --manifest-path rust-engine/Cargo.toml -- --nocapture
+      - name: Check release build
+        run: cargo build --release --manifest-path rust-engine/Cargo.toml
+      - name: Compare topology peak memory
+        run: |
+          cargo build --release --manifest-path rust-engine/Cargo.toml --example topology_memory
+          /usr/bin/time -f 'legacy peak_rss_kib=%M elapsed_seconds=%e' rust-engine/target/release/examples/topology_memory 450 legacy
+          /usr/bin/time -f 'compact peak_rss_kib=%M elapsed_seconds=%e' rust-engine/target/release/examples/topology_memory 450 compact
