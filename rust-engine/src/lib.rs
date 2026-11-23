@@ -7,6 +7,7 @@ pub mod document;
 pub mod intersections;
 pub mod patch;
 pub mod subdivide;
+pub mod scene;
 pub mod tolerance;
 pub mod orient;
 use std::collections::{BTreeMap, HashMap, HashSet};

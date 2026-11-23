@@ -1,7 +1,7 @@
 //! Explicit project-level accuracy target with optional operation override.
 //! Tolerance is expressed in mesh coordinate units; unit metadata is separate.
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
-pub enum LengthUnit { Millimeters, Inches, Meters, Unspecified }
+pub enum LengthUnit { Microns, Millimeters, Centimeters, Inches, Feet, Meters, Unspecified }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum ToleranceSource { ProjectDefault, OperationOverride }
 #[derive(Clone,Copy,Debug,PartialEq)]
